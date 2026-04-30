@@ -1,0 +1,30 @@
+# Environment variables
+.env.local
+.env
+.env.*
+
+# IDE and tool artifacts
+.claude/
+
+# Next.js
+.next/
+
+# Node
+node_modules/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime data — generated at runtime, not source code
+data/outputs/
+data/approvals/
+data/audit/
+data/prompts/
+data/requests/
+data/settings/
+exports/
+uploads/
