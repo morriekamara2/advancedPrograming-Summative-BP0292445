@@ -1,0 +1,217 @@
+{
+  "_meta": {
+    "description": "QE Savings Lab — internal architecture knowledge base",
+    "version": "1.0.0",
+    "lastUpdated": "2026-04-14",
+    "owner": "QE Savings Lab"
+  },
+  "services": [
+    {
+      "name": "Savings Account Service",
+      "id": "sas",
+      "type": "microservice",
+      "language": "Java / Spring Boot",
+      "description": "Owns the lifecycle of savings accounts: creation, closure, status transitions, interest application.",
+      "responsibilities": [
+        "Create and close savings accounts",
+        "Apply daily interest calculations",
+        "Enforce ISA annual allowance limits (£20,000)",
+        "Manage account status (Active, Frozen, Closed)",
+        "Handle Fixed-Rate maturity events"
+      ],
+      "apis": [
+        { "method": "POST", "path": "/api/v2/accounts", "description": "Open a new savings account" },
+        { "method": "GET", "path": "/api/v2/accounts/{id}", "description": "Retrieve account details" },
+        { "method": "PATCH", "path": "/api/v2/accounts/{id}/status", "description": "Update account status" },
+        { "method": "GET", "path": "/api/v2/accounts/{id}/balance", "description": "Get current balance and interest" }
+      ],
+      "database": "PostgreSQL (primary), Redis (balance cache)",
+      "events": ["AccountOpened", "AccountClosed", "InterestApplied", "StatusChanged"],
+      "team": "Core Banking — Savings Squad"
+    },
+    {
+      "name": "Identity & Verification Service",
+      "id": "ivs",
+      "type": "microservice",
+      "language": "Node.js / TypeScript",
+      "description": "Handles KYC (Know Your Customer) checks, document verification, and AML screening for onboarding.",
+      "responsibilities": [
+        "Validate customer identity documents (passport, driving licence)",
+        "Screen against PEP and sanctions lists",
+        "Trigger third-party KYC provider (Onfido)",
+        "Issue and cache verification tokens",
+        "Flag high-risk customers for manual review"
+      ],
+      "apis": [
+        { "method": "POST", "path": "/api/v1/verify/identity", "description": "Initiate KYC check" },
+        { "method": "GET", "path": "/api/v1/verify/{sessionId}/status", "description": "Poll verification status" },
+        { "method": "POST", "path": "/api/v1/verify/{sessionId}/complete", "description": "Complete verification with result" }
+      ],
+      "externalDependencies": ["Onfido KYC API", "Compliance Sanctions List (daily sync)"],
+      "database": "MongoDB",
+      "events": ["VerificationStarted", "VerificationPassed", "VerificationFailed", "HighRiskFlagged"],
+      "team": "Identity & Compliance Squad"
+    },
+    {
+      "name": "Payment Processing Service",
+      "id": "pps",
+      "type": "microservice",
+      "language": "Java / Spring Boot",
+      "description": "Processes deposits and withdrawals. Integrates with Faster Payments Scheme (FPS) and internal ledger.",
+      "responsibilities": [
+        "Process inbound deposits (bank transfer, debit card)",
+        "Process outbound withdrawals (Faster Payments)",
+        "Enforce daily withdrawal limits",
+        "Idempotency key management for duplicate prevention",
+        "Reconciliation with internal ledger"
+      ],
+      "apis": [
+        { "method": "POST", "path": "/api/v2/payments/deposit", "description": "Initiate a deposit" },
+        { "method": "POST", "path": "/api/v2/payments/withdraw", "description": "Initiate a withdrawal" },
+        { "method": "GET", "path": "/api/v2/payments/{transactionId}", "description": "Get payment status" }
+      ],
+      "externalDependencies": ["Faster Payments Scheme (FPS)", "Visa/Mastercard Debit Gateway"],
+      "database": "PostgreSQL",
+      "events": ["PaymentInitiated", "PaymentSettled", "PaymentFailed", "DailyLimitBreached"],
+      "team": "Payments Squad"
+    },
+    {
+      "name": "Notification Service",
+      "id": "ns",
+      "type": "microservice",
+      "language": "Node.js",
+      "description": "Sends push notifications, SMS, and email to customers for account events.",
+      "responsibilities": [
+        "Send account opening confirmation",
+        "Transaction alerts (deposit/withdrawal)",
+        "Interest credit notifications",
+        "Regulatory communication (ISA statements)",
+        "Retry failed notifications with exponential backoff"
+      ],
+      "apis": [
+        { "method": "POST", "path": "/api/v1/notify/email", "description": "Send email notification" },
+        { "method": "POST", "path": "/api/v1/notify/push", "description": "Send push notification" },
+        { "method": "POST", "path": "/api/v1/notify/sms", "description": "Send SMS" }
+      ],
+      "externalDependencies": ["AWS SES (email)", "Firebase Cloud Messaging (push)", "Twilio (SMS)"],
+      "database": "DynamoDB (notification log)",
+      "events": ["NotificationSent", "NotificationFailed"],
+      "team": "Customer Engagement Squad"
+    },
+    {
+      "name": "Customer Profile Service",
+      "id": "cps",
+      "type": "microservice",
+      "language": "Python / FastAPI",
+      "description": "Single source of truth for customer profile data. Owned by CRM domain.",
+      "responsibilities": [
+        "Store and serve customer personal details",
+        "Manage communication preferences",
+        "Link financial products to customer record",
+        "GDPR data deletion and portability"
+      ],
+      "apis": [
+        { "method": "GET", "path": "/api/v3/customers/{customerId}", "description": "Get customer profile" },
+        { "method": "PATCH", "path": "/api/v3/customers/{customerId}", "description": "Update profile" },
+        { "method": "DELETE", "path": "/api/v3/customers/{customerId}/data", "description": "GDPR erasure request" }
+      ],
+      "database": "PostgreSQL",
+      "events": ["ProfileUpdated", "CustomerDeleted", "ConsentChanged"],
+      "team": "CRM Squad"
+    },
+    {
+      "name": "Core Banking Ledger",
+      "id": "cbl",
+      "type": "legacy-integration",
+      "language": "COBOL / MQ integration layer (Java)",
+      "description": "Legacy core banking system. All balances are ultimately reconciled here. Synchronous calls are high-latency; prefer event-driven integration.",
+      "responsibilities": [
+        "Authoritative balance store",
+        "Regulatory reporting (PRA, FCA)",
+        "End-of-day batch interest sweep",
+        "Dormant account management"
+      ],
+      "integration": "IBM MQ (async events) + REST adapter (sync queries, 500ms P95 SLA)",
+      "knownLimitations": [
+        "No real-time streaming — batch updates every 15 minutes",
+        "Downtime window: 02:00–03:00 UTC (maintenance)",
+        "Maximum 100 transactions/second sustained throughput",
+        "No sandbox — testing requires dedicated integration environment"
+      ],
+      "team": "Core Banking Platform"
+    },
+    {
+      "name": "API Gateway",
+      "id": "agw",
+      "type": "infrastructure",
+      "description": "Kong-based API Gateway. Handles auth (JWT), rate limiting, and routing.",
+      "responsibilities": [
+        "JWT validation (Keycloak-issued tokens)",
+        "Rate limiting: 100 req/min per customer",
+        "Route to downstream microservices",
+        "TLS termination",
+        "Request/response logging to SIEM"
+      ]
+    }
+  ],
+  "downstreamSystems": [
+    {
+      "name": "HMRC ISA Reporting",
+      "type": "regulatory",
+      "description": "Annual ISA subscription data reported to HMRC. File-based SFTP submission. Deadline: April 5 each tax year.",
+      "integrationPattern": "Batch / SFTP",
+      "testingNotes": "Sandbox available. Test file format must match HMRC schema v3.1. Use test NINOs."
+    },
+    {
+      "name": "Onfido",
+      "type": "third-party",
+      "description": "KYC / identity verification. Document upload + facial biometric checks.",
+      "integrationPattern": "REST API + webhook callbacks",
+      "testingNotes": "Sandbox available. Predefined test documents produce pass/fail/refer outcomes."
+    },
+    {
+      "name": "Faster Payments Scheme (FPS)",
+      "type": "payment-network",
+      "description": "Near real-time UK payment network. Used for withdrawals and inbound transfers.",
+      "integrationPattern": "ISO 20022 messages via FPS gateway",
+      "testingNotes": "FPS test environment available. Simulate settlement delays with test sort codes."
+    },
+    {
+      "name": "Credit Reference Agency (Equifax)",
+      "type": "third-party",
+      "description": "Soft credit check during onboarding for risk scoring. Not a hard search.",
+      "integrationPattern": "REST API",
+      "testingNotes": "Test IDs available. Produces predefined risk scores (Low/Medium/High)."
+    },
+    {
+      "name": "FCA RegData",
+      "type": "regulatory",
+      "description": "Regulatory data submission portal. Product sales and complaints data submitted quarterly.",
+      "integrationPattern": "Manual CSV upload + API (v2 in progress)",
+      "testingNotes": "Submissions validated against FCA schema. No sandbox — use pre-submission validation tool."
+    }
+  ],
+  "eventBus": {
+    "technology": "Apache Kafka",
+    "topics": [
+      { "name": "savings.accounts", "producers": ["sas"], "consumers": ["ns", "cbl", "cps"] },
+      { "name": "savings.payments", "producers": ["pps"], "consumers": ["sas", "ns", "cbl"] },
+      { "name": "identity.verification", "producers": ["ivs"], "consumers": ["sas", "cps"] },
+      { "name": "customer.profiles", "producers": ["cps"], "consumers": ["ivs", "sas", "ns"] }
+    ]
+  },
+  "knownRisks": [
+    "Core Banking Ledger batch latency can cause balance discrepancies in real-time views",
+    "Onfido webhook delivery is not guaranteed — missed callbacks can leave accounts in pending state",
+    "ISA allowance check is performed at account open only — not rechecked on top-up",
+    "Daily withdrawal limit resets at midnight UTC — edge case around limit enforcement near reset",
+    "FPS settlement failures are not always retried — manual intervention may be required",
+    "Duplicate account opening requests within 30 seconds may bypass idempotency check (known bug SAS-441)"
+  ],
+  "environments": {
+    "local": "Docker Compose — all services mocked except SAS and PPS",
+    "dev": "Full integration environment — Onfido sandbox, FPS test, mock CBL",
+    "staging": "Production-mirror — real CBL integration, limited FPS test volume",
+    "production": "Live"
+  }
+}
